@@ -1,0 +1,27 @@
+[package]
+name = "auto-traits"
+version = "0.1.0"
+edition = "2021"
+repository = "https://github.com/Lut99/auto-traits-rs"
+description = "A Rust crate containing procedural macros for common auto-implementations for traits."
+
+
+[lib]
+proc-macro = true
+
+
+[[example]]
+name = "pointer_impls_simple"
+path = "examples/pointer_impls/simple.rs"
+required-features = []
+
+
+[dependencies]
+bitvec = "1.0.1"
+proc-macro2 = "1.0.92"
+quote = "1.0.37"
+syn = { version = "2.0.90", features = ["extra-traits", "full", "visit-mut"] }
+
+
+[features]
+parking_lot = []
