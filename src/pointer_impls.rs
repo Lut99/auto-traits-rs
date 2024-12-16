@@ -4,7 +4,7 @@
 //  Created:
 //    13 Dec 2024, 14:22:51
 //  Last edited:
-//    16 Dec 2024, 15:13:31
+//    16 Dec 2024, 15:25:25
 //  Auto updated?
 //    Yes
 //
@@ -746,7 +746,15 @@ impl Parse for Attributes {
                 // Attempt to parse an identifier instead
                 match input.parse::<Ident>() {
                     Ok(ident) => {
-                        if ident.to_string() != "unimpl" {
+                        let sident: String = ident.to_string();
+                        println!("{sident}");
+                        if sident == "T" {
+                            // Change tacks; we now enter generics mode!
+                            input.parse::<Token![=]>()?;
+                            attr.generic = input.parse::<Ident>()?;
+                            first = false;
+                            continue;
+                        } else if sident != "unimpl" {
                             return Err(Error::new(ident.span(), "Expected either 'impl' or 'unimpl'"));
                         }
                     },

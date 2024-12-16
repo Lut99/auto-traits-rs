@@ -4,7 +4,7 @@
 //  Created:
 //    13 Dec 2024, 14:22:24
 //  Last edited:
-//    16 Dec 2024, 14:22:30
+//    16 Dec 2024, 15:19:21
 //  Auto updated?
 //    Yes
 //
@@ -113,6 +113,19 @@ use proc_macro::TokenStream;
 /// where types marked with an aterisk (*) are only implemented if the trait has no methods with
 /// `&mut self`.
 ///
+///
+/// ## Changing generics
+/// By default, in all of the generated impls, `T` represents the identifier of the unknown type.
+/// You can change this by specifying `T = ...` with some other identifier:
+/// ```rust
+/// use auto_traits::pointer_impls;
+///
+/// #[pointer_impls(T = U)]
+/// trait Foo {
+///     fn foo(&self) -> &str;
+///     fn bar(&self) -> &str { "bar" }
+/// }
+/// ```
 ///
 /// ## Specifying types
 /// You can tweak the attribute to change for which types your trait is implemented.
