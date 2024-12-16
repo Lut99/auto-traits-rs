@@ -4,7 +4,7 @@
 //  Created:
 //    13 Dec 2024, 14:22:51
 //  Last edited:
-//    16 Dec 2024, 14:57:44
+//    16 Dec 2024, 15:13:31
 //  Auto updated?
 //    Yes
 //
@@ -995,7 +995,10 @@ impl ToTokens for Generator {
                                             tokens.extend(quote! { #this })
                                         }
                                     }
-                                    passing_args.to_tokens(tokens);
+                                    if !passing_args.is_empty() {
+                                        tokens.extend(quote! {,});
+                                        passing_args.to_tokens(tokens);
+                                    }
                                 });
                             });
                         } else {
@@ -1009,7 +1012,10 @@ impl ToTokens for Generator {
                                             tokens.extend(quote! { #this })
                                         }
                                     }
-                                    passing_args.to_tokens(tokens);
+                                    if !passing_args.is_empty() {
+                                        tokens.extend(quote! {,});
+                                        passing_args.to_tokens(tokens);
+                                    }
                                 });
                             });
                         }

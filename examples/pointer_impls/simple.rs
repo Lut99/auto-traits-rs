@@ -4,7 +4,7 @@
 //  Created:
 //    13 Dec 2024, 14:44:49
 //  Last edited:
-//    16 Dec 2024, 12:02:01
+//    16 Dec 2024, 15:09:45
 //  Auto updated?
 //    Yes
 //
@@ -24,20 +24,20 @@ use auto_traits::pointer_impls;
 // Define some trait - with pointer implementations!
 #[pointer_impls]
 trait HelloWorld {
-    fn hello_world(&self) -> &str;
+    fn hello(&self, what: &str) -> String;
 }
 
 // Let's implement it for some object.
 struct Foo;
 impl HelloWorld for Foo {
-    fn hello_world(&self) -> &str { "Hello, world!" }
+    fn hello(&self, what: &str) -> String { format!("Hello, {what}!") }
 }
 
 
 
 // This method is just to showcase for what `HelloWorld` is implemented
 fn hello_world(helloer: impl HelloWorld) {
-    println!("{}", helloer.hello_world());
+    println!("{}", helloer.hello("world"));
 }
 
 
