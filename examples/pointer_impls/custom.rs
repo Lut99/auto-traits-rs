@@ -4,7 +4,7 @@
 //  Created:
 //    16 Dec 2024, 12:02:31
 //  Last edited:
-//    16 Dec 2024, 14:12:13
+//    16 Dec 2024, 14:27:10
 //  Auto updated?
 //    Yes
 //
@@ -40,6 +40,7 @@ struct Pointer2<T>(T);
 // Define some trait - with pointer implementations!
 #[pointer_impls(unimpl *, impl Pointer1<_>, impl Pointer2<_> = &self.0)]
 trait HelloWorld {
+    /// This will also be implemented for our Pointer types!
     fn hello_world(&self) -> &str;
 }
 

@@ -4,7 +4,7 @@
 //  Created:
 //    13 Dec 2024, 14:22:51
 //  Last edited:
-//    16 Dec 2024, 14:12:01
+//    16 Dec 2024, 14:35:01
 //  Auto updated?
 //    Yes
 //
@@ -1019,22 +1019,22 @@ impl ToTokens for Generator {
                     },
 
                     // Associated types
-                    TraitItem::Type(t) => {
-                        let TraitItemType { attrs, type_token, ident, generics, colon_token, bounds, default, semi_token } = t;
+                    TraitItem::Type(ty) => {
+                        let TraitItemType { attrs, type_token, ident, generics, colon_token: _, bounds: _, default, semi_token } = ty;
                         let (impl_gen, ty_gen, where_clause) = generics.split_for_impl();
 
                         // Generate the associated type as:
                         // ```
                         // #[foo]
-                        // type Bar<BAZ>: Quz where BAZ: 'static = <T as Qux>::Bar<BAZ>;
+                        // type Bar<BAZ> = <T as Qux>::Bar<BAZ> where BAZ: 'static;
                         // ```
-                        let mut tokens = quote! { #(#attrs)* #type_token #ident #impl_gen #colon_token #bounds #where_clause };
+                        let mut tokens = quote! { #(#attrs)* #type_token #ident #impl_gen };
                         if let Some((eq, _)) = default {
                             eq.to_tokens(&mut tokens);
                         } else {
                             <Token![=]>::default().to_tokens(&mut tokens);
                         }
-                        tokens.extend(quote! { <#t as #name>::#ident #ty_gen #semi_token });
+                        tokens.extend(quote! { <#t as #name>::#ident #ty_gen #where_clause #semi_token });
 
                         // Keep it!
                         items.push(tokens);
