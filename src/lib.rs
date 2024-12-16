@@ -4,12 +4,68 @@
 //  Created:
 //    13 Dec 2024, 14:22:24
 //  Last edited:
-//    13 Dec 2024, 14:51:04
+//    16 Dec 2024, 14:22:30
 //  Auto updated?
 //    Yes
 //
 //  Description:
 //!   A Rust crate containing procedural macros for common auto-implementations for traits.
+//!   
+//!   
+//!   # Installation
+//!   To use the crate, first add it to your `Cargo.toml`, e.g.:
+//!   ```toml
+//!   [dependencies]
+//!   auto-traits = { git = "https://github.com/Lut99/auto-traits-rs" }
+//!   ```
+//!   
+//!   You can commit yourself to a particular version with:
+//!   ```toml
+//!   [dependencies]
+//!   auto-traits = { git = "https://github.com/Lut99/auto-traits-rs", tag = "v0.1.0" }
+//!   ```
+//!   
+//!   Optionally, you can also enable features with:
+//!   ```toml
+//!   auto-traits = { git = "https://github.com/Lut99/auto-traits-rs", features = ["parking_lot"] }
+//!   ```
+//!   
+//!   
+//!   # Usage
+//!   Using the crate is pretty straightforward. Go to any trait that you want to commute over standard
+//!   pointer-like types, and add:
+//!   ```rust
+//!   #[auto_traits::pointer_impls]
+//!   trait Foo {
+//!       fn foo(&self) -> &str;
+//!   }
+//!   ```
+//!   and a transparent implementation of your trait is generated for quite a few standard library types.
+//!   See the documentation of the `pointer_impl`-attribute macro for the full specification of which
+//!   types are supported and how to use it.
+//!   
+//!   ## Features
+//!   The crate supports the following features:
+//!   - `parking_lot`: Adds blanket implementations for
+//!     [`parking_lot`](https://crates.io/crates/parking_lot)'s `MutexGuard`, `RwLockReadGuard` and
+//!     `RwLockWriteGuard` types to every invocation of the `pointer_impls` macro.
+//!   
+//!   ## Documentation
+//!   You can generate the code documentation by running:
+//!   ```sh
+//!   cargo doc --open --no-deps
+//!   ```
+//!   which will automatically open the generated HTML in your system's default browser.
+//!   
+//!   
+//!   # Contribution
+//!   If you're interested in constributing to the project, welcome! Simply
+//!   [create an issue](https://github.com/Lut99/auto-traits-rs/issues) or
+//!   [open a pull request](https://github.com/Lut99/auto-traits-rs/pulls).
+//!   
+//!   
+//!   # License
+//!   This project is licensed under [Apache 2.0](./LICENSE).
 //
 
 // Modules
@@ -72,15 +128,21 @@ use proc_macro::TokenStream;
 /// }
 /// ```
 /// where `...` is a comma-separated list of:
-/// - a type, which will add the implementation for that type.
-///     - By default, the implementation will rely on a [`Deref`]-implementation to coerce the
-///       pointers to `self`; however, you can specify a closure after an equals sign to change how
-///       this is accessed.
+/// - `impl[<T1, T2, ...>] [mut] Foo<_>`, which adds an implementation for the given type.
+///     - Any generics given are generics _added_ to the implementation that aren't already in the
+///       trait definition. This is usually used for lifetimes.
+///     - Specifying `mut` indicates that your type supports interior mutability. This is only
+///       relevant if the trait has methods with mutable access to `self`.
+///     - By default, the implementation will rely on a [`Deref`]/[`DerefMut`]-implementation to
+///       coerce the pointers to `self`; however, you can specify an expression over `self` after
+///       an equals sign to change how this is accessed (e.g., `impl Foo<_> = &self.0`).
 ///     - You can use `_` to refer to the original object (e.g., `&_`).
-/// - `*`, which expands to all the default types. In combination with `not` (see below), this can
-///   be used to exclude any standard type: `#[pointer_impls(!*)]`.
-/// - `! ...`, meaning that that type will NOT be implemented instead of will. This can be used
-///   to exclude any of the standard types, for example.
+/// - `unimpl Foo<_>`, which removes generating an implementation for a certain type. This is
+///   mostly useful for excluding types that are defaultly generated.
+///     - Note that types are referred to by absolute path, e.g., `Box` should be
+///       `::std::boxed::Box<_>`.
+///     - Use `*` instead of a typename to remove ALL currently marked-for-implementation types.
+///       This is useful for when you only want to implement your own types.
 ///
 /// For examples on how to use these patterns, see the
 /// [`examples/`](https://github.com/Lut99/auto-traits-rs/tree/main/examples) in the repository.
@@ -100,6 +162,14 @@ use proc_macro::TokenStream;
 ///     fn bar(&self) -> &str { "bar" }
 /// }
 /// ```
+///
+///
+/// # Considerations
+/// This macro has a few implementations. Currently:
+/// - The impls only work for concrete types - and then specifically, paths (e.g., identifiers with
+///   generics).
+/// - Macro invocations in traits are ignored in the `impls`, because I'm unsure how those would
+///   generally translate to impls.
 #[proc_macro_attribute]
 pub fn pointer_impls(attr: TokenStream, item: TokenStream) -> TokenStream {
     // Pass to the actual implementation

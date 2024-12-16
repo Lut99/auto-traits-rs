@@ -4,7 +4,7 @@
 //  Created:
 //    13 Dec 2024, 14:22:51
 //  Last edited:
-//    13 Dec 2024, 16:08:37
+//    16 Dec 2024, 14:12:01
 //  Auto updated?
 //    Yes
 //
@@ -17,13 +17,16 @@ use std::collections::HashSet;
 
 use bitvec::prelude::BitVec;
 use proc_macro2::{Span, TokenStream as TokenStream2};
-use quote::ToTokens;
+use quote::{ToTokens, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
+use syn::spanned::Spanned as _;
+use syn::token::Brace;
 use syn::visit_mut::{self, VisitMut};
 use syn::{
-    AngleBracketedGenericArguments, Attribute, Error, ExprClosure, FnArg, GenericArgument, Ident, ItemTrait, Lifetime, Meta, Path, PathArguments,
-    PathSegment, Token, TraitItem, Type, TypeInfer, TypePath, TypeReference,
+    AngleBracketedGenericArguments, Attribute, Error, Expr, ExprPath, FnArg, GenericArgument, GenericParam, Generics, Ident, ItemTrait, Lifetime,
+    LifetimeParam, Pat, Path, PathArguments, PathSegment, Token, TraitBound, TraitBoundModifier, TraitItem, TraitItemConst, TraitItemFn,
+    TraitItemType, Type, TypeInfer, TypeParam, TypeParamBound, TypePath, TypeReference,
 };
 
 
@@ -36,36 +39,66 @@ fn default_types() -> HashSet<TypeToImpl> {
     HashSet::from([
         // &'a _
         TypeToImpl {
-            ty:      Type::Reference(TypeReference {
+            ty: Type::Reference(TypeReference {
                 and_token: Default::default(),
                 lifetime: Some(Lifetime { apostrophe: Span::call_site(), ident: Ident::new("a", Span::call_site()) }),
                 mutability: None,
                 elem: Box::new(Type::Infer(TypeInfer { underscore_token: Default::default() })),
             }),
             mutable: false,
+            generics: Some(Generics {
+                lt_token: Some(Default::default()),
+                params: {
+                    let mut params = Punctuated::new();
+                    params.push(GenericParam::Lifetime(LifetimeParam {
+                        attrs: Vec::new(),
+                        lifetime: Lifetime::new("'a", Span::call_site()),
+                        colon_token: None,
+                        bounds: Punctuated::new(),
+                    }));
+                    params
+                },
+                gt_token: Some(Default::default()),
+                where_clause: None,
+            }),
             closure: None,
         },
         // &'a mut _
         TypeToImpl {
-            ty:      Type::Reference(TypeReference {
+            ty: Type::Reference(TypeReference {
                 and_token: Default::default(),
                 lifetime: Some(Lifetime { apostrophe: Span::call_site(), ident: Ident::new("a", Span::call_site()) }),
                 mutability: Some(Default::default()),
                 elem: Box::new(Type::Infer(TypeInfer { underscore_token: Default::default() })),
             }),
             mutable: true,
+            generics: Some(Generics {
+                lt_token: Some(Default::default()),
+                params: {
+                    let mut params = Punctuated::new();
+                    params.push(GenericParam::Lifetime(LifetimeParam {
+                        attrs: Vec::new(),
+                        lifetime: Lifetime::new("'a", Span::call_site()),
+                        colon_token: None,
+                        bounds: Punctuated::new(),
+                    }));
+                    params
+                },
+                gt_token: Some(Default::default()),
+                where_clause: None,
+            }),
             closure: None,
         },
-        // ::std::box::Box<_>
+        // ::std::boxed::Box<_>
         TypeToImpl {
-            ty:      Type::Path(TypePath {
+            ty: Type::Path(TypePath {
                 qself: None,
                 path:  Path {
                     leading_colon: Some(Default::default()),
                     segments:      {
                         let mut punct = Punctuated::new();
                         punct.push(PathSegment { ident: Ident::new("std", Span::call_site()), arguments: PathArguments::None });
-                        punct.push(PathSegment { ident: Ident::new("box", Span::call_site()), arguments: PathArguments::None });
+                        punct.push(PathSegment { ident: Ident::new("boxed", Span::call_site()), arguments: PathArguments::None });
                         punct.push(PathSegment {
                             ident:     Ident::new("Box", Span::call_site()),
                             arguments: PathArguments::AngleBracketed(AngleBracketedGenericArguments {
@@ -84,11 +117,12 @@ fn default_types() -> HashSet<TypeToImpl> {
                 },
             }),
             mutable: true,
+            generics: None,
             closure: None,
         },
         // ::std::rc::Rc<_>
         TypeToImpl {
-            ty:      Type::Path(TypePath {
+            ty: Type::Path(TypePath {
                 qself: None,
                 path:  Path {
                     leading_colon: Some(Default::default()),
@@ -114,11 +148,12 @@ fn default_types() -> HashSet<TypeToImpl> {
                 },
             }),
             mutable: false,
+            generics: None,
             closure: None,
         },
         // ::std::sync::Arc<_>
         TypeToImpl {
-            ty:      Type::Path(TypePath {
+            ty: Type::Path(TypePath {
                 qself: None,
                 path:  Path {
                     leading_colon: Some(Default::default()),
@@ -144,11 +179,12 @@ fn default_types() -> HashSet<TypeToImpl> {
                 },
             }),
             mutable: false,
+            generics: None,
             closure: None,
         },
         // ::std::cell::Ref<'a, _>
         TypeToImpl {
-            ty:      Type::Path(TypePath {
+            ty: Type::Path(TypePath {
                 qself: None,
                 path:  Path {
                     leading_colon: Some(Default::default()),
@@ -178,11 +214,26 @@ fn default_types() -> HashSet<TypeToImpl> {
                 },
             }),
             mutable: false,
+            generics: Some(Generics {
+                lt_token: Some(Default::default()),
+                params: {
+                    let mut params = Punctuated::new();
+                    params.push(GenericParam::Lifetime(LifetimeParam {
+                        attrs: Vec::new(),
+                        lifetime: Lifetime::new("'a", Span::call_site()),
+                        colon_token: None,
+                        bounds: Punctuated::new(),
+                    }));
+                    params
+                },
+                gt_token: Some(Default::default()),
+                where_clause: None,
+            }),
             closure: None,
         },
         // ::std::cell::RefMut<'a, _>
         TypeToImpl {
-            ty:      Type::Path(TypePath {
+            ty: Type::Path(TypePath {
                 qself: None,
                 path:  Path {
                     leading_colon: Some(Default::default()),
@@ -212,11 +263,26 @@ fn default_types() -> HashSet<TypeToImpl> {
                 },
             }),
             mutable: true,
+            generics: Some(Generics {
+                lt_token: Some(Default::default()),
+                params: {
+                    let mut params = Punctuated::new();
+                    params.push(GenericParam::Lifetime(LifetimeParam {
+                        attrs: Vec::new(),
+                        lifetime: Lifetime::new("'a", Span::call_site()),
+                        colon_token: None,
+                        bounds: Punctuated::new(),
+                    }));
+                    params
+                },
+                gt_token: Some(Default::default()),
+                where_clause: None,
+            }),
             closure: None,
         },
         // ::std::sync::MutexGuard<'a, _>
         TypeToImpl {
-            ty:      Type::Path(TypePath {
+            ty: Type::Path(TypePath {
                 qself: None,
                 path:  Path {
                     leading_colon: Some(Default::default()),
@@ -246,11 +312,26 @@ fn default_types() -> HashSet<TypeToImpl> {
                 },
             }),
             mutable: true,
+            generics: Some(Generics {
+                lt_token: Some(Default::default()),
+                params: {
+                    let mut params = Punctuated::new();
+                    params.push(GenericParam::Lifetime(LifetimeParam {
+                        attrs: Vec::new(),
+                        lifetime: Lifetime::new("'a", Span::call_site()),
+                        colon_token: None,
+                        bounds: Punctuated::new(),
+                    }));
+                    params
+                },
+                gt_token: Some(Default::default()),
+                where_clause: None,
+            }),
             closure: None,
         },
         // ::std::sync::RwLockReadGuard<'a, _>
         TypeToImpl {
-            ty:      Type::Path(TypePath {
+            ty: Type::Path(TypePath {
                 qself: None,
                 path:  Path {
                     leading_colon: Some(Default::default()),
@@ -280,11 +361,26 @@ fn default_types() -> HashSet<TypeToImpl> {
                 },
             }),
             mutable: false,
+            generics: Some(Generics {
+                lt_token: Some(Default::default()),
+                params: {
+                    let mut params = Punctuated::new();
+                    params.push(GenericParam::Lifetime(LifetimeParam {
+                        attrs: Vec::new(),
+                        lifetime: Lifetime::new("'a", Span::call_site()),
+                        colon_token: None,
+                        bounds: Punctuated::new(),
+                    }));
+                    params
+                },
+                gt_token: Some(Default::default()),
+                where_clause: None,
+            }),
             closure: None,
         },
         // ::std::sync::RwLockWriteGuard<'a, _>
         TypeToImpl {
-            ty:      Type::Path(TypePath {
+            ty: Type::Path(TypePath {
                 qself: None,
                 path:  Path {
                     leading_colon: Some(Default::default()),
@@ -314,12 +410,27 @@ fn default_types() -> HashSet<TypeToImpl> {
                 },
             }),
             mutable: true,
+            generics: Some(Generics {
+                lt_token: Some(Default::default()),
+                params: {
+                    let mut params = Punctuated::new();
+                    params.push(GenericParam::Lifetime(LifetimeParam {
+                        attrs: Vec::new(),
+                        lifetime: Lifetime::new("'a", Span::call_site()),
+                        colon_token: None,
+                        bounds: Punctuated::new(),
+                    }));
+                    params
+                },
+                gt_token: Some(Default::default()),
+                where_clause: None,
+            }),
             closure: None,
         },
         // ::parking_lot::MutexGuard<'a, _>
         #[cfg(feature = "parking_lot")]
         TypeToImpl {
-            ty:      Type::Path(TypePath {
+            ty: Type::Path(TypePath {
                 qself: None,
                 path:  Path {
                     leading_colon: Some(Default::default()),
@@ -348,12 +459,27 @@ fn default_types() -> HashSet<TypeToImpl> {
                 },
             }),
             mutable: true,
+            generics: Some(Generics {
+                lt_token: Some(Default::default()),
+                params: {
+                    let mut params = Punctuated::new();
+                    params.push(GenericParam::Lifetime(LifetimeParam {
+                        attrs: Vec::new(),
+                        lifetime: Lifetime::new("'a", Span::call_site()),
+                        colon_token: None,
+                        bounds: Punctuated::new(),
+                    }));
+                    params
+                },
+                gt_token: Some(Default::default()),
+                where_clause: None,
+            }),
             closure: None,
         },
         // ::parking_lot::RwLockReadGuard<'a, _>
         #[cfg(feature = "parking_lot")]
         TypeToImpl {
-            ty:      Type::Path(TypePath {
+            ty: Type::Path(TypePath {
                 qself: None,
                 path:  Path {
                     leading_colon: Some(Default::default()),
@@ -382,12 +508,27 @@ fn default_types() -> HashSet<TypeToImpl> {
                 },
             }),
             mutable: false,
+            generics: Some(Generics {
+                lt_token: Some(Default::default()),
+                params: {
+                    let mut params = Punctuated::new();
+                    params.push(GenericParam::Lifetime(LifetimeParam {
+                        attrs: Vec::new(),
+                        lifetime: Lifetime::new("'a", Span::call_site()),
+                        colon_token: None,
+                        bounds: Punctuated::new(),
+                    }));
+                    params
+                },
+                gt_token: Some(Default::default()),
+                where_clause: None,
+            }),
             closure: None,
         },
         // ::parking_lot::RwLockWriteGuard<'a, _>
         #[cfg(feature = "parking_lot")]
         TypeToImpl {
-            ty:      Type::Path(TypePath {
+            ty: Type::Path(TypePath {
                 qself: None,
                 path:  Path {
                     leading_colon: Some(Default::default()),
@@ -416,9 +557,121 @@ fn default_types() -> HashSet<TypeToImpl> {
                 },
             }),
             mutable: true,
+            generics: Some(Generics {
+                lt_token: Some(Default::default()),
+                params: {
+                    let mut params = Punctuated::new();
+                    params.push(GenericParam::Lifetime(LifetimeParam {
+                        attrs: Vec::new(),
+                        lifetime: Lifetime::new("'a", Span::call_site()),
+                        colon_token: None,
+                        bounds: Punctuated::new(),
+                    }));
+                    params
+                },
+                gt_token: Some(Default::default()),
+                where_clause: None,
+            }),
             closure: None,
         },
     ])
+}
+
+/// Injects additional types into the given generics.
+///
+/// # Arguments
+/// - `t`: The name of the special `T` to inject as the type bearing the target trait.
+/// - `todo`: The [`ItemTrait`] encoding the trait to implement.
+/// - `to_impl`: The type wrapping `T` for which we actually implement. Any of its generics are inject, EXCEPT if they ALREADY OCCUR (including `T`).
+/// - `generics`: The [`Generics`] to inject in.
+fn inject_additional_types(t: &Ident, todo: &ItemTrait, type_to_impl_gen: &Option<Generics>, generics: &mut Generics) {
+    if let Some(type_to_impl_gen) = type_to_impl_gen {
+        // Inject lifetimes first
+        generics.params = type_to_impl_gen
+            .lifetimes()
+            .map(|l| GenericParam::Lifetime(l.clone()))
+            .chain({
+                let mut gens = Punctuated::new();
+                std::mem::swap(&mut gens, &mut generics.params);
+                gens.into_iter()
+            })
+            .collect();
+        // Then any const- and type params
+        generics.params.extend(
+            type_to_impl_gen
+                .const_params()
+                .map(|c| GenericParam::Const(c.clone()))
+                .chain(type_to_impl_gen.type_params().map(|t| GenericParam::Type(t.clone()))),
+        );
+    }
+
+    // Push `T`
+    generics.params.push(GenericParam::Type(TypeParam {
+        attrs: Vec::new(),
+        ident: t.clone(),
+        colon_token: Some(Default::default()),
+        bounds: {
+            let mut bounds = Punctuated::new();
+            bounds.push(TypeParamBound::Trait(TraitBound {
+                paren_token: Some(Default::default()),
+                modifier: TraitBoundModifier::None,
+                lifetimes: None,
+                path: Path {
+                    leading_colon: None,
+                    segments:      {
+                        let mut segments = Punctuated::new();
+                        segments.push(PathSegment {
+                            ident:     todo.ident.clone(),
+                            arguments: if !todo.generics.params.is_empty() {
+                                PathArguments::AngleBracketed(AngleBracketedGenericArguments {
+                                    colon2_token: None,
+                                    lt_token: Default::default(),
+                                    args: todo
+                                        .generics
+                                        .params
+                                        .iter()
+                                        .map(|a| match a {
+                                            GenericParam::Const(c) => GenericArgument::Const(Expr::Path(ExprPath {
+                                                attrs: c.attrs.clone(),
+                                                qself: None,
+                                                path:  Path {
+                                                    leading_colon: None,
+                                                    segments:      {
+                                                        let mut segments = Punctuated::new();
+                                                        segments.push(PathSegment { ident: c.ident.clone(), arguments: PathArguments::None });
+                                                        segments
+                                                    },
+                                                },
+                                            })),
+                                            GenericParam::Lifetime(l) => GenericArgument::Lifetime(l.lifetime.clone()),
+                                            GenericParam::Type(t) => GenericArgument::Type(Type::Path(TypePath {
+                                                qself: None,
+                                                path:  Path {
+                                                    leading_colon: None,
+                                                    segments:      {
+                                                        let mut segments = Punctuated::new();
+                                                        segments.push(PathSegment { ident: t.ident.clone(), arguments: PathArguments::None });
+                                                        segments
+                                                    },
+                                                },
+                                            })),
+                                        })
+                                        .collect(),
+                                    gt_token: Default::default(),
+                                })
+                            } else {
+                                PathArguments::None
+                            },
+                        });
+                        segments
+                    },
+                },
+            }));
+            bounds
+        },
+        eq_token: None,
+        default: None,
+    }));
 }
 
 
@@ -451,11 +704,13 @@ impl VisitMut for TypeResolver {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct TypeToImpl {
     /// The type to implement for.
-    ty:      Type,
+    ty: Type,
     /// Whether this type is interior mutable or not.
     mutable: bool,
+    /// The generics to add for this type.
+    generics: Option<Generics>,
     /// The optional closure that maps `self` to whatever.
-    closure: Option<ExprClosure>,
+    closure: Option<Expr>,
 }
 
 /// Specifies the attributes we're parsing from the attribute.
@@ -473,16 +728,40 @@ impl Parse for Attributes {
     #[inline]
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let default_types: HashSet<TypeToImpl> = default_types();
+        let mut first: bool = true;
         let mut attr = Self::default();
         while !input.is_empty() {
-            // Parse an optional not
-            let add: bool = input.parse::<Token![!]>().is_ok();
+            // Parse any punctuation
+            if !first {
+                input.parse::<Token![,]>()?;
+                // This could've been the trailing
+                if input.is_empty() {
+                    break;
+                }
+            }
+
+            // Parse either 'impl' or 'unimpl'
+            let add: bool = input.parse::<Token![impl]>().is_ok();
+            if !add {
+                // Attempt to parse an identifier instead
+                match input.parse::<Ident>() {
+                    Ok(ident) => {
+                        if ident.to_string() != "unimpl" {
+                            return Err(Error::new(ident.span(), "Expected either 'impl' or 'unimpl'"));
+                        }
+                    },
+                    Err(_) => return Err(input.error("Expected either 'impl' or 'unimpl'")),
+                }
+            }
 
             // Parse the optional `mut`
-            let mutable: bool = input.parse::<Token![mut]>().is_ok();
+            let mutable: bool = if add { input.parse::<Token![mut]>().is_ok() } else { false };
+
+            // Then parse any generics
+            let generics: Option<Generics> = if add { input.parse().ok() } else { None };
 
             // Then parse either a wildcard OR a type
-            if input.parse::<Token![*]>().is_ok() {
+            if !add && input.parse::<Token![*]>().is_ok() {
                 if add {
                     attr.types.extend(default_types.iter().cloned());
                 } else {
@@ -493,15 +772,18 @@ impl Parse for Attributes {
                 let ty: Type = input.parse()?;
 
                 // Optionally parse the closure
-                let closure: Option<ExprClosure> = if input.parse::<Token![=]>().is_ok() { Some(input.parse()?) } else { None };
+                let closure: Option<Expr> = if input.parse::<Token![=]>().is_ok() { Some(input.parse()?) } else { None };
 
                 // Process the changes
                 if add {
-                    attr.types.insert(TypeToImpl { ty, mutable, closure });
+                    attr.types.insert(TypeToImpl { ty, mutable, generics, closure });
                 } else {
                     attr.types.retain(|todo| todo.ty != ty);
                 }
             }
+
+            // Note we've done one impl
+            first = false;
         }
         Ok(attr)
     }
@@ -510,32 +792,11 @@ impl Parse for Attributes {
 
 
 /// Specifies the attributes users can give on trait items.
-struct ItemAttributes {
-    /// Whether the use told us to include this regardless.
-    include_impl: bool,
-}
+struct ItemAttributes {}
 impl TryFrom<&mut Vec<Attribute>> for ItemAttributes {
     type Error = syn::Error;
 
-    fn try_from(value: &mut Vec<Attribute>) -> Result<Self, Self::Error> {
-        // Iterate over the values
-        let mut include_impl: bool = false;
-        value.retain(|attr| {
-            // Parse the attribute's meta
-            match &attr.meta {
-                Meta::Path(p) => {
-                    if p.is_ident("include_impl") {
-                        include_impl = true;
-                        false
-                    } else {
-                        true
-                    }
-                },
-                Meta::List(_) | Meta::NameValue(_) => true,
-            }
-        });
-        Ok(Self { include_impl })
-    }
+    fn try_from(_value: &mut Vec<Attribute>) -> Result<Self, Self::Error> { Ok(Self {}) }
 }
 
 /// Specifies that which we need to know about every item in the input trait.
@@ -556,12 +817,20 @@ impl Parse for ImplsToDo {
         let mut item_mask: BitVec = BitVec::with_capacity(def.items.len());
         let mut requires_mutable: bool = false;
         for item in &mut def.items {
-            match item {
-                // Associate constants
-                TraitItem::Fn(f) => {
-                    // Parse the attributes
-                    let item_attrs = ItemAttributes::try_from(&mut f.attrs)?;
+            // Get the attributes of this item and whether it would be included based on e.g. not
+            // having a default implementation
+            let attrs: &mut Vec<Attribute> = match item {
+                TraitItem::Const(c) => {
+                    // Assert first that there are no generics (wtf does that even mean on
+                    // associated constants)
+                    if c.generics.params.is_empty() {
+                        return Err(Error::new(c.generics.span(), "Associated constants with generics are not supported by `#[pointer_impls]`"));
+                    }
 
+                    // OK, now return the info we want
+                    &mut c.attrs
+                },
+                TraitItem::Fn(f) => {
                     // First, we mark if this makes the trait require internal mutability
                     for arg in &f.sig.inputs {
                         match arg {
@@ -573,15 +842,30 @@ impl Parse for ImplsToDo {
                         }
                     }
 
-                    // Then decide whether to push based on the presence of the attribute & boolean
-                    item_mask.push(item_attrs.include_impl || f.default.is_none());
+                    // Then return the attributes
+                    &mut f.attrs
                 },
+                TraitItem::Type(ty) => &mut ty.attrs,
 
-                // The rest never requires mutability
-                _ => {
-                    item_mask.push(true);
+                // Ignore macro invocations and vertabim
+                TraitItem::Macro(m) => {
+                    eprintln!("WARNING: Trait item '{m:?}' is ignored in impls provided by `#[pointer_impls]`");
+                    item_mask.push(false);
+                    continue;
                 },
-            }
+                TraitItem::Verbatim(v) => {
+                    eprintln!("WARNING: Trait item '{v:?}' is ignored in impls provided by `#[pointer_impls]`");
+                    item_mask.push(false);
+                    continue;
+                },
+                _other => unimplemented!(),
+            };
+
+            // Parse them
+            let _item_attrs = ItemAttributes::try_from(attrs)?;
+
+            // Decide whether to push based on the presence of the attribute & boolean
+            item_mask.push(true);
         }
 
         // OK, done
@@ -604,27 +888,42 @@ impl ToTokens for Generator {
         // First, write the original definition
         self.todo.def.to_tokens(tokens);
 
-        // Then, write the types
-        let mut resolver = TypeResolver {
-            ty: Type::Path(TypePath {
-                qself: None,
-                path:  Path {
-                    leading_colon: None,
-                    segments:      {
-                        let mut puncts = Punctuated::new();
-                        puncts.push(PathSegment { ident: Ident::new("T", Span::call_site()), arguments: PathArguments::None });
-                        puncts
-                    },
+        // Extract some things from the def
+        let name: &Ident = &self.todo.def.ident;
+        let (_, ty_gen, where_clause) = self.todo.def.generics.split_for_impl();
+
+        // Define the `T`-type
+        let t: Type = Type::Path(TypePath {
+            qself: None,
+            path:  Path {
+                leading_colon: None,
+                segments:      {
+                    let mut puncts = Punctuated::new();
+                    puncts.push(PathSegment { ident: self.attrs.generic.clone(), arguments: PathArguments::None });
+                    puncts
                 },
-            }),
-        };
+            },
+        });
+
+        // Generate an implementation for each of the given pointer types
+        let mut resolver = TypeResolver { ty: t.clone() };
         for to_impl in &self.attrs.types {
+            // Skip this impl if it requires mutability
+            if !to_impl.mutable && self.todo.requires_mutable {
+                continue;
+            }
+
             // Resolve the type's inferred to concrete ones
             let mut ty: Type = to_impl.ty.clone();
             resolver.visit_type_mut(&mut ty);
 
+            // Inject the necessary types
+            let mut altered_generics = self.todo.def.generics.clone();
+            inject_additional_types(&self.attrs.generic, &self.todo.def, &to_impl.generics, &mut altered_generics);
+            let (impl_gen, _, _) = altered_generics.split_for_impl();
+
             // Build the items of the impls
-            let items: Vec<TokenStream2> = Vec::with_capacity(self.todo.item_mask.count_ones());
+            let mut items: Vec<TokenStream2> = Vec::with_capacity(self.todo.item_mask.count_ones());
             for (i, item) in self.todo.def.items.iter().enumerate() {
                 // Apply the mask
                 if !self.todo.item_mask[i] {
@@ -633,11 +932,123 @@ impl ToTokens for Generator {
 
                 // Generate the impl
                 match item {
+                    // Associated constants
                     TraitItem::Const(c) => {
-                        let name = c.items.push(quote! { const #name: #ty = #value; });
+                        let TraitItemConst { attrs, const_token, ident, generics, colon_token, ty, default, semi_token } = c;
+                        #[cfg(debug_assertions)]
+                        if !generics.params.is_empty() {
+                            panic!("Got non-empty associated constant generics after parsing");
+                        }
+
+                        // Generate the associated constant's impl as:
+                        // ```
+                        // #[foo]
+                        // const BAR: Baz = <T as Quz>::BAR;
+                        // ```
+                        let mut tokens = quote! { #(#attrs)* #const_token #ident #colon_token #ty };
+                        if let Some((eq, _)) = default {
+                            eq.to_tokens(&mut tokens);
+                        } else {
+                            <Token![=]>::default().to_tokens(&mut tokens);
+                        }
+                        tokens.extend(quote! {<#t as #name>::#ident #semi_token });
+
+                        // Keep it!
+                        items.push(tokens);
                     },
+
+                    // Associated methods
+                    TraitItem::Fn(f) => {
+                        let TraitItemFn { attrs, sig, default, semi_token: _ } = f;
+                        let ident: &Ident = &sig.ident;
+                        let (_, ty_gen, _) = sig.generics.split_for_impl();
+                        let ty_gen = ty_gen.as_turbofish();
+
+                        // Collect the parameters (which are patterns, of course :#)
+                        let mut this: Option<Ident> = None;
+                        let passing_args: Punctuated<Pat, Token![,]> = sig
+                            .inputs
+                            .iter()
+                            .filter_map(|a| match a {
+                                FnArg::Receiver(r) => {
+                                    this = Some(Ident::new("self", r.span()));
+                                    None
+                                },
+                                FnArg::Typed(t) => Some((*t.pat).clone()),
+                            })
+                            .collect();
+
+                        // Generate the associated method's impl as:
+                        // ```
+                        // #[foo]
+                        // fn bar(&self, baz: Quz) -> Qux { <T as Cuz>::bar(self, baz) }
+                        // ```
+                        let mut tokens = quote! { #(#attrs)* #sig };
+                        if let Some(block) = default {
+                            block.brace_token.surround(&mut tokens, |tokens| {
+                                tokens.extend(quote! { <#t as #name>::#ident #ty_gen });
+                                sig.paren_token.surround(tokens, |tokens| {
+                                    if let Some(this) = this {
+                                        if let Some(closure) = &to_impl.closure {
+                                            tokens.extend(quote! { #closure })
+                                        } else {
+                                            tokens.extend(quote! { #this })
+                                        }
+                                    }
+                                    passing_args.to_tokens(tokens);
+                                });
+                            });
+                        } else {
+                            Brace::default().surround(&mut tokens, |tokens| {
+                                tokens.extend(quote! { <#t as #name>::#ident #ty_gen });
+                                sig.paren_token.surround(tokens, |tokens| {
+                                    if let Some(this) = this {
+                                        if let Some(closure) = &to_impl.closure {
+                                            tokens.extend(quote! { #closure })
+                                        } else {
+                                            tokens.extend(quote! { #this })
+                                        }
+                                    }
+                                    passing_args.to_tokens(tokens);
+                                });
+                            });
+                        }
+
+                        // Keep it!
+                        items.push(tokens);
+                    },
+
+                    // Associated types
+                    TraitItem::Type(t) => {
+                        let TraitItemType { attrs, type_token, ident, generics, colon_token, bounds, default, semi_token } = t;
+                        let (impl_gen, ty_gen, where_clause) = generics.split_for_impl();
+
+                        // Generate the associated type as:
+                        // ```
+                        // #[foo]
+                        // type Bar<BAZ>: Quz where BAZ: 'static = <T as Qux>::Bar<BAZ>;
+                        // ```
+                        let mut tokens = quote! { #(#attrs)* #type_token #ident #impl_gen #colon_token #bounds #where_clause };
+                        if let Some((eq, _)) = default {
+                            eq.to_tokens(&mut tokens);
+                        } else {
+                            <Token![=]>::default().to_tokens(&mut tokens);
+                        }
+                        tokens.extend(quote! { <#t as #name>::#ident #ty_gen #semi_token });
+
+                        // Keep it!
+                        items.push(tokens);
+                    },
+
+                    // Things we don't care about
+                    TraitItem::Macro(_) => panic!("Got macro item for trait even though the parsing should have filtered these out"),
+                    TraitItem::Verbatim(_) => panic!("Got vertabim item for trait even though the parsing should have filtered these out"),
+                    _other => panic!("Got other item for trait even though the parsing should have filtered these out"),
                 }
             }
+
+            // Now build the overall impl
+            tokens.extend(quote! { impl #impl_gen #name #ty_gen for #ty #where_clause { #(#items)* } })
         }
     }
 }
