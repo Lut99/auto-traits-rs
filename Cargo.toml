@@ -83,6 +83,11 @@ name = "pointer_impls_associated"
 path = "examples/pointer_impls/associated.rs"
 required-features = []
 
+[[example]]
+name = "pointer_impls_generics"
+path = "examples/pointer_impls/generics.rs"
+required-features = []
+
 
 [dependencies]
 bitvec = "1.0.1"

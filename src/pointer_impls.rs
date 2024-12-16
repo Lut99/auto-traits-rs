@@ -4,7 +4,7 @@
 //  Created:
 //    13 Dec 2024, 14:22:51
 //  Last edited:
-//    16 Dec 2024, 14:35:01
+//    16 Dec 2024, 14:57:44
 //  Auto updated?
 //    Yes
 //
@@ -890,7 +890,7 @@ impl ToTokens for Generator {
 
         // Extract some things from the def
         let name: &Ident = &self.todo.def.ident;
-        let (_, ty_gen, where_clause) = self.todo.def.generics.split_for_impl();
+        let (_, trait_ty_gen, trait_where_clause) = self.todo.def.generics.split_for_impl();
 
         // Define the `T`-type
         let t: Type = Type::Path(TypePath {
@@ -920,7 +920,7 @@ impl ToTokens for Generator {
             // Inject the necessary types
             let mut altered_generics = self.todo.def.generics.clone();
             inject_additional_types(&self.attrs.generic, &self.todo.def, &to_impl.generics, &mut altered_generics);
-            let (impl_gen, _, _) = altered_generics.split_for_impl();
+            let (trait_impl_gen, _, _) = altered_generics.split_for_impl();
 
             // Build the items of the impls
             let mut items: Vec<TokenStream2> = Vec::with_capacity(self.todo.item_mask.count_ones());
@@ -951,7 +951,7 @@ impl ToTokens for Generator {
                         } else {
                             <Token![=]>::default().to_tokens(&mut tokens);
                         }
-                        tokens.extend(quote! {<#t as #name>::#ident #semi_token });
+                        tokens.extend(quote! {<#t as #name #trait_ty_gen>::#ident #semi_token });
 
                         // Keep it!
                         items.push(tokens);
@@ -986,7 +986,7 @@ impl ToTokens for Generator {
                         let mut tokens = quote! { #(#attrs)* #sig };
                         if let Some(block) = default {
                             block.brace_token.surround(&mut tokens, |tokens| {
-                                tokens.extend(quote! { <#t as #name>::#ident #ty_gen });
+                                tokens.extend(quote! { <#t as #name #trait_ty_gen>::#ident #ty_gen });
                                 sig.paren_token.surround(tokens, |tokens| {
                                     if let Some(this) = this {
                                         if let Some(closure) = &to_impl.closure {
@@ -1000,7 +1000,7 @@ impl ToTokens for Generator {
                             });
                         } else {
                             Brace::default().surround(&mut tokens, |tokens| {
-                                tokens.extend(quote! { <#t as #name>::#ident #ty_gen });
+                                tokens.extend(quote! { <#t as #name #trait_ty_gen>::#ident #ty_gen });
                                 sig.paren_token.surround(tokens, |tokens| {
                                     if let Some(this) = this {
                                         if let Some(closure) = &to_impl.closure {
@@ -1034,7 +1034,7 @@ impl ToTokens for Generator {
                         } else {
                             <Token![=]>::default().to_tokens(&mut tokens);
                         }
-                        tokens.extend(quote! { <#t as #name>::#ident #ty_gen #where_clause #semi_token });
+                        tokens.extend(quote! { <#t as #name #trait_ty_gen>::#ident #ty_gen #where_clause #semi_token });
 
                         // Keep it!
                         items.push(tokens);
@@ -1048,7 +1048,7 @@ impl ToTokens for Generator {
             }
 
             // Now build the overall impl
-            tokens.extend(quote! { impl #impl_gen #name #ty_gen for #ty #where_clause { #(#items)* } })
+            tokens.extend(quote! { impl #trait_impl_gen #name #trait_ty_gen for #ty #trait_where_clause { #(#items)* } })
         }
     }
 }
