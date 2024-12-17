@@ -4,7 +4,7 @@
 //  Created:
 //    13 Dec 2024, 14:22:51
 //  Last edited:
-//    16 Dec 2024, 15:25:25
+//    17 Dec 2024, 16:41:31
 //  Auto updated?
 //    Yes
 //
@@ -13,7 +13,7 @@
 //!   pointer-like types for a trait.
 //
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use bitvec::prelude::BitVec;
 use proc_macro2::{Span, TokenStream as TokenStream2};
@@ -25,8 +25,8 @@ use syn::token::Brace;
 use syn::visit_mut::{self, VisitMut};
 use syn::{
     AngleBracketedGenericArguments, Attribute, Error, Expr, ExprPath, FnArg, GenericArgument, GenericParam, Generics, Ident, ItemTrait, Lifetime,
-    LifetimeParam, Pat, Path, PathArguments, PathSegment, Token, TraitBound, TraitBoundModifier, TraitItem, TraitItemConst, TraitItemFn,
-    TraitItemType, Type, TypeInfer, TypeParam, TypeParamBound, TypePath, TypeReference,
+    LifetimeParam, Meta, MetaList, Pat, Path, PathArguments, PathSegment, Token, TraitBound, TraitBoundModifier, TraitItem, TraitItemConst,
+    TraitItemFn, TraitItemType, Type, TypeInfer, TypeParam, TypeParamBound, TypePath, TypeReference,
 };
 
 
@@ -747,7 +747,6 @@ impl Parse for Attributes {
                 match input.parse::<Ident>() {
                     Ok(ident) => {
                         let sident: String = ident.to_string();
-                        println!("{sident}");
                         if sident == "T" {
                             // Change tacks; we now enter generics mode!
                             input.parse::<Token![=]>()?;
@@ -799,20 +798,14 @@ impl Parse for Attributes {
 
 
 
-/// Specifies the attributes users can give on trait items.
-struct ItemAttributes {}
-impl TryFrom<&mut Vec<Attribute>> for ItemAttributes {
-    type Error = syn::Error;
-
-    fn try_from(_value: &mut Vec<Attribute>) -> Result<Self, Self::Error> { Ok(Self {}) }
-}
-
 /// Specifies that which we need to know about every item in the input trait.
 struct ImplsToDo {
     /// The original definition.
     def: ItemTrait,
     /// A mask of items in `def` to actually do.
     item_mask: BitVec,
+    /// A list of attributes for items that we generate (i.e., items with the mask on 1)
+    item_attrs: HashMap<usize, ItemAttributes>,
     /// Whether anything in this trait requires interior mutability of the pointer.
     requires_mutable: bool,
 }
@@ -822,6 +815,7 @@ impl Parse for ImplsToDo {
         let mut def: ItemTrait = input.parse()?;
 
         // Go through its items to find the interior mutability status
+        let mut item_attrs: HashMap<usize, ItemAttributes> = HashMap::with_capacity(def.items.len());
         let mut item_mask: BitVec = BitVec::with_capacity(def.items.len());
         let mut requires_mutable: bool = false;
         for item in &mut def.items {
@@ -869,16 +863,113 @@ impl Parse for ImplsToDo {
                 _other => unimplemented!(),
             };
 
-            // Parse them
-            let _item_attrs = ItemAttributes::try_from(attrs)?;
-
             // Decide whether to push based on the presence of the attribute & boolean
+            item_attrs.insert(item_mask.len(), ItemAttributes::try_from(attrs)?);
             item_mask.push(true);
         }
 
         // OK, done
-        Ok(Self { def, item_mask, requires_mutable })
+        Ok(Self { def, item_mask, item_attrs, requires_mutable })
     }
+}
+
+/// Specifies the attributes users can give on trait items.
+struct ItemAttributes {
+    /// The list of generics to push for this item.
+    generics: Option<AngleBracketedGenericArguments>,
+}
+impl TryFrom<&mut Vec<Attribute>> for ItemAttributes {
+    type Error = syn::Error;
+
+    fn try_from(value: &mut Vec<Attribute>) -> Result<Self, Self::Error> {
+        // Collect the attributes of interest
+        let mut attrs: Vec<TokenStream2> = Vec::with_capacity(value.len());
+        value.retain_mut(|attr| match &mut attr.meta {
+            // We're interested in `#[pointer_impl(...)]` only (for now)
+            Meta::List(l) => {
+                if l.path.is_ident("pointer_impl") {
+                    // Match; extract the attribute from it (so it doesn't linger in the re-
+                    // generated definition of the trait)
+                    let mut tokens: TokenStream2 = TokenStream2::new();
+                    std::mem::swap(&mut tokens, &mut l.tokens);
+                    attrs.push(tokens);
+                    false
+                } else {
+                    true
+                }
+            },
+
+            Meta::Path(_) | Meta::NameValue(_) => true,
+        });
+
+        // Attempt to parse each of those
+        let mut attr = Self { generics: None };
+        for tokens in attrs {
+            let metas: Punctuated<BetterMeta, Token![,]> = syn::parse2::<BetterMetas>(tokens)?.0;
+            for meta in metas {
+                match meta {
+                    BetterMeta::NameValue(nv) => {
+                        if nv.path.is_ident("generics") {
+                            // Parse the value as the required list
+                            attr.generics = Some(syn::parse2(nv.value)?);
+                        } else {
+                            return Err(Error::new(nv.path.span(), format!("Unknown pointer_impl attribute {}", nv.path.into_token_stream())));
+                        }
+                    },
+
+                    BetterMeta::Path(p) => {
+                        return Err(Error::new(p.span(), format!("Unknown pointer_impl attribute {}", p.into_token_stream())));
+                    },
+                    BetterMeta::List(l) => {
+                        return Err(Error::new(l.path.span(), format!("Unknown pointer_impl attribute {}", l.path.into_token_stream())));
+                    },
+                }
+            }
+        }
+
+        // OK!
+        Ok(attr)
+    }
+}
+
+/// Specifies a wrapper around [`Punctuated<BetterMeta, Token![,]>`](Punctuated) that parses it.
+struct BetterMetas(Punctuated<BetterMeta, Token![,]>);
+impl Parse for BetterMetas {
+    #[inline]
+    fn parse(input: ParseStream) -> syn::Result<Self> { Ok(Self(Punctuated::parse_terminated(input)?)) }
+}
+
+/// Specifies a more lenient [`Meta`] based on a [`BetterMetaNameValue`].
+enum BetterMeta {
+    /// It's a path.
+    Path(Path),
+    /// It's a list of paths.
+    List(MetaList),
+    /// It's a name/value pair.
+    NameValue(BetterMetaNameValue),
+}
+impl Parse for BetterMeta {
+    #[inline]
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        if let Ok(nv) = input.parse::<BetterMetaNameValue>() {
+            return Ok(Self::NameValue(nv));
+        }
+        if let Ok(l) = input.parse::<MetaList>() {
+            return Ok(Self::List(l));
+        }
+        Ok(Self::Path(input.parse()?))
+    }
+}
+
+/// Specifies a more lenient [`MetaNameValue`](syn::MetaNameValue).
+struct BetterMetaNameValue {
+    path:      Path,
+    _eq_token: Token![=],
+    value:     TokenStream2,
+}
+impl Parse for BetterMetaNameValue {
+    #[inline]
+    fn parse(input: ParseStream) -> syn::Result<Self> { Ok(Self { path: input.parse()?, _eq_token: input.parse()?, value: input.parse()? }) }
 }
 
 
@@ -969,8 +1060,6 @@ impl ToTokens for Generator {
                     TraitItem::Fn(f) => {
                         let TraitItemFn { attrs, sig, default, semi_token: _ } = f;
                         let ident: &Ident = &sig.ident;
-                        let (_, ty_gen, _) = sig.generics.split_for_impl();
-                        let ty_gen = ty_gen.as_turbofish();
 
                         // Collect the parameters (which are patterns, of course :#)
                         let mut this: Option<Ident> = None;
@@ -994,9 +1083,21 @@ impl ToTokens for Generator {
                         let mut tokens = quote! { #(#attrs)* #sig };
                         if let Some(block) = default {
                             block.brace_token.surround(&mut tokens, |tokens| {
-                                tokens.extend(quote! { <#t as #name #trait_ty_gen>::#ident #ty_gen });
+                                // Either generate the default types, or the custom one
+                                if let Some(generics) = &self.todo.item_attrs.get(&i).unwrap().generics {
+                                    tokens.extend(quote! { <#t as #name #trait_ty_gen>::#ident :: #generics });
+                                } else {
+                                    let mut generics: Generics = sig.generics.clone();
+                                    generics.params =
+                                        generics.params.into_iter().filter(|param| !matches!(param, GenericParam::Lifetime(_))).collect();
+                                    let (_, ty_gen, _) = generics.split_for_impl();
+                                    let ty_gen = ty_gen.as_turbofish();
+                                    tokens.extend(quote! { <#t as #name #trait_ty_gen>::#ident #ty_gen });
+                                }
+
+                                // Write the contents of the parenthesis
                                 sig.paren_token.surround(tokens, |tokens| {
-                                    if let Some(this) = this {
+                                    if let Some(this) = &this {
                                         if let Some(closure) = &to_impl.closure {
                                             tokens.extend(quote! { #closure })
                                         } else {
@@ -1004,16 +1105,30 @@ impl ToTokens for Generator {
                                         }
                                     }
                                     if !passing_args.is_empty() {
-                                        tokens.extend(quote! {,});
+                                        if this.is_some() {
+                                            tokens.extend(quote! {,});
+                                        }
                                         passing_args.to_tokens(tokens);
                                     }
                                 });
                             });
                         } else {
                             Brace::default().surround(&mut tokens, |tokens| {
-                                tokens.extend(quote! { <#t as #name #trait_ty_gen>::#ident #ty_gen });
+                                // Either generate the default types, or the custom one
+                                if let Some(generics) = &self.todo.item_attrs.get(&i).unwrap().generics {
+                                    tokens.extend(quote! { <#t as #name #trait_ty_gen>::#ident :: #generics });
+                                } else {
+                                    let mut generics: Generics = sig.generics.clone();
+                                    generics.params =
+                                        generics.params.into_iter().filter(|param| !matches!(param, GenericParam::Lifetime(_))).collect();
+                                    let (_, ty_gen, _) = generics.split_for_impl();
+                                    let ty_gen = ty_gen.as_turbofish();
+                                    tokens.extend(quote! { <#t as #name #trait_ty_gen>::#ident #ty_gen });
+                                }
+
+                                // Write the contents of the parenthesis
                                 sig.paren_token.surround(tokens, |tokens| {
-                                    if let Some(this) = this {
+                                    if let Some(this) = &this {
                                         if let Some(closure) = &to_impl.closure {
                                             tokens.extend(quote! { #closure })
                                         } else {
@@ -1021,7 +1136,9 @@ impl ToTokens for Generator {
                                         }
                                     }
                                     if !passing_args.is_empty() {
-                                        tokens.extend(quote! {,});
+                                        if this.is_some() {
+                                            tokens.extend(quote! {,});
+                                        }
                                         passing_args.to_tokens(tokens);
                                     }
                                 });

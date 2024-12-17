@@ -1,6 +1,6 @@
 [package]
 name = "auto-traits"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 repository = "https://github.com/Lut99/auto-traits-rs"
 description = """
@@ -86,6 +86,11 @@ required-features = []
 [[example]]
 name = "pointer_impls_generics"
 path = "examples/pointer_impls/generics.rs"
+required-features = []
+
+[[example]]
+name = "pointer_impls_lifetimes"
+path = "examples/pointer_impls/lifetimes.rs"
 required-features = []
 
 

@@ -4,7 +4,7 @@
 //  Created:
 //    13 Dec 2024, 14:22:24
 //  Last edited:
-//    16 Dec 2024, 15:19:21
+//    17 Dec 2024, 16:45:39
 //  Auto updated?
 //    Yes
 //
@@ -126,6 +126,20 @@ use proc_macro::TokenStream;
 ///     fn bar(&self) -> &str { "bar" }
 /// }
 /// ```
+///
+/// On field-level, this can also be done. Specifically, when generating implementations for
+/// generic associated types or methods, ALL of the generics & constants (not lifetimes!) are
+/// passed on the implementation. You can change this by manually providing a list:
+/// ```rust
+/// use auto_traits::pointer_impls;
+///
+/// #[pointer_impls]
+/// trait Foo {
+///     #[pointer_impl(generics = <A>)]
+///     fn pass<A>(what: A) -> A;
+/// }
+/// ```
+/// Usually, you'd use this to pass less generics than normal (i.e., give an empty list `<>`).
 ///
 /// ## Specifying types
 /// You can tweak the attribute to change for which types your trait is implemented.
