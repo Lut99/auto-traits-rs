@@ -5,6 +5,13 @@ The project uses [semantic versioning](https://semver.org). As such, breaking ch
 indicated with **(BREAKING CHANGE)**.
 
 
+## v0.2.1 - 2025-01-15
+### Changed
+- Bumped deps to latest versions.
+
+### Fixed
+- The `#[pointer_impls]`-macro generating wrong impls when associated types have trait bounds.
+
 ## v0.2.0 - 2024-12-17
 ### Added
 - The `#[pointer_impl(...)]` field macro on trait items.

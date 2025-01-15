@@ -1,6 +1,6 @@
 [package]
 name = "auto-traits"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 repository = "https://github.com/Lut99/auto-traits-rs"
 description = """
@@ -84,6 +84,11 @@ path = "examples/pointer_impls/associated.rs"
 required-features = []
 
 [[example]]
+name = "pointer_impls_associated_bounds"
+path = "examples/pointer_impls/associated_bounds.rs"
+required-features = []
+
+[[example]]
 name = "pointer_impls_generics"
 path = "examples/pointer_impls/generics.rs"
 required-features = []
@@ -96,9 +101,9 @@ required-features = []
 
 [dependencies]
 bitvec = "1.0.1"
-proc-macro2 = "1.0.92"
-quote = "1.0.37"
-syn = { version = "2.0.90", features = ["extra-traits", "full", "visit-mut"] }
+proc-macro2 = "1.0.93"
+quote = "1.0.38"
+syn = { version = "2.0.96", features = ["extra-traits", "full", "visit-mut"] }
 
 
 [dev-dependencies]

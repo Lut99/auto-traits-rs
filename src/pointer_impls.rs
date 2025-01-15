@@ -4,7 +4,7 @@
 //  Created:
 //    13 Dec 2024, 14:22:51
 //  Last edited:
-//    17 Dec 2024, 16:41:31
+//    15 Jan 2025, 10:41:07
 //  Auto updated?
 //    Yes
 //
@@ -679,15 +679,40 @@ fn inject_additional_types(t: &Ident, todo: &ItemTrait, type_to_impl_gen: &Optio
 
 
 /***** VISITORS *****/
-/// Visitor that resolve all inferred types with the given one.
-struct TypeResolver {
-    ty: Type,
+/// Visitor that resolves all self types with the given one.
+struct SelfResolver {
+    ident: Ident,
 }
-impl VisitMut for TypeResolver {
+impl VisitMut for SelfResolver {
+    fn visit_type_mut(&mut self, node: &mut Type) {
+        // If the type is the self one, then replace it and done
+        if let Type::Path(ty) = node {
+            // Check if the first segment is Self
+            if let Some(PathSegment { ident, arguments: _ }) = ty.path.segments.iter_mut().next() {
+                if ident == "Self" {
+                    // It is; now replace it
+                    *ident = self.ident.clone();
+                }
+            }
+
+            // Any other type is handled with the default impl!
+            visit_mut::visit_type_mut(self, node);
+        } else {
+            // Any other type is handled with the default impl!
+            visit_mut::visit_type_mut(self, node)
+        }
+    }
+}
+
+/// Visitor that resolves all inferred types with the given one.
+struct InferResolver {
+    ty: TypePath,
+}
+impl VisitMut for InferResolver {
     fn visit_type_mut(&mut self, node: &mut Type) {
         // If the type is the inferred one, then replace it and done
         if matches!(node, Type::Infer(_)) {
-            *node = self.ty.clone();
+            *node = Type::Path(self.ty.clone());
         } else {
             // Any other type is handled with the default impl!
             visit_mut::visit_type_mut(self, node)
@@ -984,15 +1009,8 @@ struct Generator {
 impl ToTokens for Generator {
     #[inline]
     fn to_tokens(&self, tokens: &mut TokenStream2) {
-        // First, write the original definition
-        self.todo.def.to_tokens(tokens);
-
-        // Extract some things from the def
-        let name: &Ident = &self.todo.def.ident;
-        let (_, trait_ty_gen, trait_where_clause) = self.todo.def.generics.split_for_impl();
-
         // Define the `T`-type
-        let t: Type = Type::Path(TypePath {
+        let t = TypePath {
             qself: None,
             path:  Path {
                 leading_colon: None,
@@ -1002,10 +1020,24 @@ impl ToTokens for Generator {
                     puncts
                 },
             },
-        });
+        };
+        let mut infer_resolver = InferResolver { ty: t.clone() };
+        let mut self_resolver = SelfResolver { ident: self.attrs.generic.clone() };
+
+        // Resolve the types in the original definition, once for `Self` and once for `T`
+        let mut def = self.todo.def.clone();
+        infer_resolver.visit_item_trait_mut(&mut def);
+
+        // First, write the original definition
+        def.to_tokens(tokens);
+
+        // Extract some things from the def
+        let name: &Ident = &def.ident;
+        let mut generics: Generics = def.generics.clone();
+        self_resolver.visit_generics_mut(&mut generics);
+        let (_, trait_ty_gen, trait_where_clause) = generics.split_for_impl();
 
         // Generate an implementation for each of the given pointer types
-        let mut resolver = TypeResolver { ty: t.clone() };
         for to_impl in &self.attrs.types {
             // Skip this impl if it requires mutability
             if !to_impl.mutable && self.todo.requires_mutable {
@@ -1014,16 +1046,16 @@ impl ToTokens for Generator {
 
             // Resolve the type's inferred to concrete ones
             let mut ty: Type = to_impl.ty.clone();
-            resolver.visit_type_mut(&mut ty);
+            infer_resolver.visit_type_mut(&mut ty);
 
             // Inject the necessary types
-            let mut altered_generics = self.todo.def.generics.clone();
-            inject_additional_types(&self.attrs.generic, &self.todo.def, &to_impl.generics, &mut altered_generics);
+            let mut altered_generics = def.generics.clone();
+            inject_additional_types(&self.attrs.generic, &def, &to_impl.generics, &mut altered_generics);
             let (trait_impl_gen, _, _) = altered_generics.split_for_impl();
 
             // Build the items of the impls
             let mut items: Vec<TokenStream2> = Vec::with_capacity(self.todo.item_mask.count_ones());
-            for (i, item) in self.todo.def.items.iter().enumerate() {
+            for (i, item) in def.items.iter().enumerate() {
                 // Apply the mask
                 if !self.todo.item_mask[i] {
                     continue;

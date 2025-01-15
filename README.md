@@ -12,7 +12,7 @@ auto-traits = { git = "https://github.com/Lut99/auto-traits-rs" }
 You can commit yourself to a particular version with:
 ```toml
 [dependencies]
-auto-traits = { git = "https://github.com/Lut99/auto-traits-rs", tag = "v0.1.0" }
+auto-traits = { git = "https://github.com/Lut99/auto-traits-rs", tag = "v0.2.1" }
 ```
 
 Optionally, you can also enable features with:
